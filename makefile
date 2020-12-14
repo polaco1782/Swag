@@ -1,7 +1,7 @@
 CC=g++ -O0 -g --std=c++17 -Wall
 DEPS=-lstdc++fs -ljpeg -lpng -lm
 
-SRC=main.cpp
+SRC=md5.cpp main.cpp
 OBJ=$(SRC:.cpp=.o)
 
 BIN=main
