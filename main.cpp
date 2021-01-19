@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <vector>
 #include <string>
@@ -9,9 +10,47 @@
 #include <memory.h>
 #include <png.h>
 
+#include "md5.h"
+
 namespace fs = std::filesystem;
 
-int def_scaleheight = 480;
+int def_scaleheight = 200;
+
+const char *html = R"html(<!doctype html>
+<html>
+    <head>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1/jquery.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/galleria/1.5.7/galleria.min.js"></script>
+<script>
+var data = [
+    {
+        image: 'img1.jpg',
+        thumb: 'thumb1.jpg',
+        big: 'big1.jpg',
+        title: 'my first image',
+        description: 'Lorem ipsum caption',
+        link: 'http://domain.com'
+    },
+    {
+        video: 'http://www.youtube.com/watch?v=GCZrz8siv4Q',
+        title: 'my second image',
+        description: 'Another caption'
+    }
+];
+</script>
+    </head>
+    <body>
+        <div class="galleria">
+        </div>
+        <script>
+            (function() {
+                Galleria.loadTheme('https://cdnjs.cloudflare.com/ajax/libs/galleria/1.5.7/themes/classic/galleria.classic.min.js');
+                Galleria.run('.galleria', { dataSource: data });
+            }());
+        </script>
+    </body>
+</html>
+)html";
 
 struct image
 {
@@ -208,33 +247,56 @@ namespace Swag
         return true;
     }
 
+    void save_markup(std::string filename)
+    {
+        std::ofstream o(filename);
+        o << html << std::endl;
+        o.close();
+    }
+
 } // namespace Swag
 
 int main()
 {
+    std::string stem;
     std::string basepath("/home/cassiano.old/Pictures/");
     fs::path current_dir(basepath);
 
-    
+    fs::create_directory(basepath+"/thumbs");
 
-    for (auto& file : fs::recursive_directory_iterator(current_dir))
-    {
-        std::string s(file.path().extension());
+    for (auto file = fs::recursive_directory_iterator(current_dir);
+              file != fs::recursive_directory_iterator(); ++file) {
+
+        // ignore any thumbs folder
+        if(file->path().stem() == "thumbs") {
+            std::cout << "Ignored: " << file->path().stem() << std::endl;
+            file.disable_recursion_pending();
+            continue;
+        }
+
+        if((stem != file->path().parent_path().stem()) && file->is_directory()) {
+            std::cout << "Scanning " << file->path().stem() << std::endl;
+            stem = file->path().parent_path().stem();
+        }
+
+        std::string s(file->path().extension());
         std::transform(s.begin(), s.end(), s.begin(), ::tolower);
 
-        if (s == ".jpg")
-        {
+        if (s == ".jpg") {
             image i;
 
-            i.in_filename = file.path().string();
-            i.out_filename = "teste.jpg";
+            i.in_filename = file->path().string();
+            i.out_filename = basepath+"/thumbs/"+md5(i.in_filename)+".jpg";
 
             Swag::load_image_jpeg(&i);
             Swag::create_thumbnail(&i);
 
-            std::cout << file.path().parent_path() << std::endl;
+            std::cout << i.in_filename << std::endl;
+            std::cout << i.out_filename << std::endl;
 
-            break;
+            //break;
         }
     }
+
+    Swag::save_markup(basepath+"/index.html");
 }
