@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <vector>
@@ -12,42 +11,81 @@
 
 #include "md5.h"
 
-namespace fs = std::filesystem;
+#if __has_include(<filesystem>)
+  #include <filesystem>
+  namespace fs = std::filesystem;
+#elif __has_include(<experimental/filesystem>)
+  #include <experimental/filesystem> 
+  namespace fs = std::experimental::filesystem;
+#else
+  error "Missing the <filesystem> header."
+#endif
 
 int def_scaleheight = 200;
 
-const char *html = R"html(<!doctype html>
+// <script>
+// var data = [
+//     {
+//         image: 'img1.jpg',
+//         thumb: 'thumb1.jpg',
+//         big: 'big1.jpg',
+//         title: 'my first image',
+//         description: 'Lorem ipsum caption',
+//         link: 'http://domain.com'
+//     },
+//     {
+//         video: 'http://www.youtube.com/watch?v=GCZrz8siv4Q',
+//         title: 'my second image',
+//         description: 'Another caption'
+//     }
+// ];
+
+
+std::string html = R"html(<!doctype html>
 <html>
     <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=0.5,user-scalable=no">
+        <style>
+            html,body{background:#fff;margin:0;}
+            body{border-top:4px solid #eee;}
+            .content{color:#777;font:12px/1.4 "helvetica neue",arial,sans-serif;max-width:85%;margin:20px auto;}
+            h1{font-size:12px;font-weight:normal;color:#222;margin:0;}
+            p{margin:0 0 20px}
+            a {color:#22BCB9;text-decoration:none;}
+            .galleria-info-description a { color: #bbb;}
+            .cred{margin-top:20px;font-size:11px;}
+            .galleria{ height: 432px; }
+        </style>
+        <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/galleria/1.6.1/themes/folio/galleria.folio.min.css" />
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/1/jquery.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/galleria/1.5.7/galleria.min.js"></script>
-<script>
-var data = [
-    {
-        image: 'img1.jpg',
-        thumb: 'thumb1.jpg',
-        big: 'big1.jpg',
-        title: 'my first image',
-        description: 'Lorem ipsum caption',
-        link: 'http://domain.com'
-    },
-    {
-        video: 'http://www.youtube.com/watch?v=GCZrz8siv4Q',
-        title: 'my second image',
-        description: 'Another caption'
-    }
-];
-</script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/galleria/1.6.1/galleria.min.js"></script>
+        <script src="gallerydata.js"></script>
+        <script>
+            $(function() {
+                var url = new URL(window.location.href);
+                var c = url.searchParams.get("page");
+                if(c == null) c = 0;
+
+                Galleria.loadTheme('https://cdnjs.cloudflare.com/ajax/libs/galleria/1.6.1/themes/folio/galleria.folio.min.js');
+                Galleria.run('.galleria', { 
+                    dataSource: data[c],
+                    thumbnails: 'lazy',
+                    _onClick: function(e) { e.openLightbox(); }
+                });
+                Galleria.ready(function() {
+                    this.lazyLoadChunks(10);
+                });
+            });
+        </script>
     </head>
     <body>
-        <div class="galleria">
+        <div class="content">
+            <h1>Galleria folio Theme</h1>
+            <p>Demonstrating a basic gallery example.</p>
+            <div class="galleria">
+            </div>
         </div>
-        <script>
-            (function() {
-                Galleria.loadTheme('https://cdnjs.cloudflare.com/ajax/libs/galleria/1.5.7/themes/classic/galleria.classic.min.js');
-                Galleria.run('.galleria', { dataSource: data });
-            }());
-        </script>
     </body>
 </html>
 )html";
@@ -102,10 +140,6 @@ namespace Swag
         img->scaleheight = def_scaleheight;
         img->scalewidth = (int)((double)img->scaleheight * ratio + 0.5);
 
-        /*
-        * Use libjpeg's handy feature to downscale the
-        * original on the fly while reading it in.
-        */
         if (img->width >= 8 * img->scalewidth)
             dinfo.scale_denom = 8;
         else if (img->width >= 4 * img->scalewidth)
@@ -194,7 +228,6 @@ namespace Swag
         JSAMPROW row_pointer[1];
         FILE *outfile;
 
-        /* Resize the image. */
         img_datasize = img->scalewidth * img->scaleheight * img->num_components;
 
         if (img->output_width == img->scalewidth && (img->output_height == img->scaleheight || img->output_height == img->scaleheight + 1))
@@ -247,10 +280,10 @@ namespace Swag
         return true;
     }
 
-    void save_markup(std::string filename)
+    void save_file(std::string& st, std::string filename)
     {
         std::ofstream o(filename);
-        o << html << std::endl;
+        o << st << std::endl;
         o.close();
     }
 
@@ -258,8 +291,10 @@ namespace Swag
 
 int main()
 {
+    int count = 0;
+    std::string json,data;
     std::string stem;
-    std::string basepath("/home/cassiano.old/Pictures/");
+    std::string basepath("/home/cassiano.old/Pictures");
     fs::path current_dir(basepath);
 
     fs::create_directory(basepath+"/thumbs");
@@ -288,15 +323,38 @@ int main()
             i.in_filename = file->path().string();
             i.out_filename = basepath+"/thumbs/"+md5(i.in_filename)+".jpg";
 
-            Swag::load_image_jpeg(&i);
-            Swag::create_thumbnail(&i);
+            std::cout << "Generating thumbnail: " << i.in_filename << std::endl;
 
-            std::cout << i.in_filename << std::endl;
-            std::cout << i.out_filename << std::endl;
+            // routine only create thumbs, doesn't care about paths
+            // Swag::load_image_jpeg(&i);
+            // Swag::create_thumbnail(&i);
 
-            //break;
+            // chop off base path from filename
+            i.in_filename.erase(0, basepath.size());
+            i.out_filename.erase(0, basepath.size());
+
+            data += "{ thumb: '" + i.out_filename + "', image: '" + i.in_filename + "' },";
+
+            if(++count%5==0)
+            {
+                // remove last comma from string
+                if(!data.empty())
+                    data.erase(data.size()-1, 1);
+
+                json += "[ "+data+" ],";
+                data.clear();
+            }
         }
     }
 
-    Swag::save_markup(basepath+"/index.html");
+    // remove last comma from string
+    if(!json.empty())
+        json.erase(json.size()-1, 1);
+
+    json = "data = [ "+json+" ];";
+ 
+    std::cout << json << std::endl;
+
+    Swag::save_file(html, basepath+"/index.html");
+    Swag::save_file(json, basepath+"/gallerydata.js");
 }
